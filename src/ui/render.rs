@@ -46,7 +46,7 @@ fn render_tabs(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         .iter()
         .map(|session| {
             let is_active = active_session == Some(session.id);
-            let style = match session.status {
+            let mut style = match session.status {
                 SessionStatus::Crashed | SessionStatus::Exited => {
                     Style::new().fg(Color::Red).add_modifier(Modifier::DIM)
                 }
@@ -56,6 +56,9 @@ fn render_tabs(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                     .add_modifier(Modifier::BOLD),
                 _ => Style::new().fg(theme.inactive_tab),
             };
+            if is_active {
+                style = style.bg(theme.active_tab_bg).add_modifier(Modifier::BOLD);
+            }
             let label = match session.status {
                 SessionStatus::Crashed => format!("✗ {}", theme.tab_label(&session.title)),
                 SessionStatus::Exited => format!("○ {}", theme.tab_label(&session.title)),
