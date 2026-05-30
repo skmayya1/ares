@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use super::git;
 use super::model::Worktree;
 use super::slug::{repo_name, task_slug};
-use super::store::{worktree_path, PersistedSession, PersistedState, WorktreeStore};
+use super::store::{PersistedSession, PersistedState, WorktreeStore, worktree_path};
 
 pub struct WorktreeManager {
     repo_root: PathBuf,

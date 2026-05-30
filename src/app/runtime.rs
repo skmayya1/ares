@@ -7,12 +7,12 @@ use ratatui::DefaultTerminal;
 use crate::event::{Event, EventBus, EventSender, SessionId};
 use crate::focus::FocusTarget;
 use crate::session::SessionManager;
-use crate::ui::render;
 use crate::ui::Theme;
-use crate::worktree::{PersistedSession, WorktreeManager};
+use crate::ui::render;
 use crate::workspace::{SessionStatus, Workspace};
+use crate::worktree::{PersistedSession, WorktreeManager};
 
-use super::handler::EventHandler;
+use super::handler::{EventContext, EventHandler};
 
 pub struct App {
     bus: EventBus,
@@ -81,10 +81,8 @@ impl App {
                     self.cols,
                     self.events.clone(),
                 ) {
-                    self.status_message = Some(format!(
-                        "failed to restore `{}`: {error}",
-                        record.title
-                    ));
+                    self.status_message =
+                        Some(format!("failed to restore `{}`: {error}", record.title));
                     self.workspace.add_session(
                         record.session_id,
                         record.title,
@@ -135,8 +133,7 @@ impl App {
                             let count = self.workspace.session_count();
                             if count > 0 {
                                 let width = terminal.size()?.width.max(1) as usize;
-                                let index =
-                                    (mouse.column as usize * count / width).min(count - 1);
+                                let index = (mouse.column as usize * count / width).min(count - 1);
                                 self.bus.push(Event::FocusTab { index });
                             }
                         } else if let Some(session_id) = self.display_session_id() {
@@ -149,7 +146,10 @@ impl App {
                     let (rows, cols) = content_size(height, width);
                     self.rows = rows;
                     self.cols = cols;
-                    self.bus.push(Event::Resize { width: cols, height: rows });
+                    self.bus.push(Event::Resize {
+                        width: cols,
+                        height: rows,
+                    });
                 }
                 _ => {}
             }
@@ -160,21 +160,21 @@ impl App {
 
     pub fn process_events(&mut self) -> Result<()> {
         while let Some(event) = self.bus.pop() {
-            EventHandler::handle(
-                event,
-                &mut self.bus,
-                &mut self.focus,
-                &mut self.last_terminal,
-                &mut self.workspace,
-                &mut self.sessions,
-                &mut self.worktrees,
-                self.rows,
-                self.cols,
-                &self.events,
-                &mut self.should_quit,
-                &mut self.status_message,
-                &mut self.new_tab_name,
-            )?;
+            let context = EventContext {
+                bus: &mut self.bus,
+                focus: &mut self.focus,
+                last_terminal: &mut self.last_terminal,
+                workspace: &mut self.workspace,
+                sessions: &mut self.sessions,
+                worktrees: &mut self.worktrees,
+                rows: self.rows,
+                cols: self.cols,
+                events: &self.events,
+                should_quit: &mut self.should_quit,
+                status_message: &mut self.status_message,
+                new_tab_name: &mut self.new_tab_name,
+            };
+            EventHandler::new(context).handle(event)?;
         }
         Ok(())
     }

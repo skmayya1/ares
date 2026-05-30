@@ -33,6 +33,9 @@ mod tests {
     fn tab_labels_use_brackets() {
         let theme = Theme::default();
         assert_eq!(theme.tab_label("Main"), "[Main]");
-        assert_eq!(theme.tab_label("Build Authentication"), "[Build Authentication]");
+        assert_eq!(
+            theme.tab_label("Build Authentication"),
+            "[Build Authentication]"
+        );
     }
 }

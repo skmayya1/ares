@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Paragraph, Tabs},
-    Frame,
 };
 use tui_term::widget::{Cursor, PseudoTerminal};
 
@@ -71,12 +71,11 @@ fn render_tabs(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 
     let tabs = Tabs::new(titles)
         .block(
-            Block::bordered()
-                .border_style(
-                    Style::new()
-                        .fg(theme.tab_border)
-                        .add_modifier(Modifier::DIM),
-                ),
+            Block::bordered().border_style(
+                Style::new()
+                    .fg(theme.tab_border)
+                    .add_modifier(Modifier::DIM),
+            ),
         )
         .select(
             active_session
@@ -99,7 +98,10 @@ fn render_new_tab_dialog(frame: &mut Frame, area: Rect, app: &App) {
         Line::from(""),
         Line::from(vec![
             Span::raw("> "),
-            Span::styled(app.new_tab_name(), Style::new().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                app.new_tab_name(),
+                Style::new().add_modifier(Modifier::BOLD),
+            ),
             Span::styled("▌", Style::new().fg(Color::Cyan)),
         ]),
         Line::from(""),

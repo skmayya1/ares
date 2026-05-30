@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::thread::{self, JoinHandle};
 
 use anyhow::{Context, Result};
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::event::{Event, EventSender, SessionId};
 
@@ -81,7 +81,10 @@ pub fn spawn_command(
         }
     });
 
-    let writer = pair.master.take_writer().context("failed to open PTY writer")?;
+    let writer = pair
+        .master
+        .take_writer()
+        .context("failed to open PTY writer")?;
 
     Ok(PtyHandle {
         master: pair.master,

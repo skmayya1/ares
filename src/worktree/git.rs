@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 pub fn repo_root() -> Result<PathBuf> {
     let output = run_git(Path::new("."), &["rev-parse", "--show-toplevel"])?;
@@ -23,10 +23,7 @@ pub fn create_branch(repo_root: &Path, branch: &str) -> Result<()> {
 
 pub fn add_worktree(repo_root: &Path, path: &Path, branch: &str) -> Result<()> {
     if path.exists() {
-        return Err(anyhow!(
-            "worktree path `{}` already exists",
-            path.display()
-        ));
+        return Err(anyhow!("worktree path `{}` already exists", path.display()));
     }
 
     if let Some(parent) = path.parent() {

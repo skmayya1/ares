@@ -126,10 +126,7 @@ mod tests {
 
     #[test]
     fn encodes_control_c() {
-        let bytes = key_event_to_bytes(KeyEvent::new(
-            KeyCode::Char('c'),
-            KeyModifiers::CONTROL,
-        ));
+        let bytes = key_event_to_bytes(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         assert_eq!(bytes, vec![3]);
     }
 

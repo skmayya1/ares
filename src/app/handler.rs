@@ -4,202 +4,188 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::event::{Event, EventBus, SessionId};
 use crate::focus::FocusTarget;
 use crate::session::SessionManager;
-use crate::terminal::input::{is_app_shortcut, key_event_to_bytes, tab_cycle_direction, TabCycleDirection};
-use crate::worktree::WorktreeManager;
+use crate::terminal::input::{
+    TabCycleDirection, is_app_shortcut, key_event_to_bytes, tab_cycle_direction,
+};
 use crate::workspace::{SessionStatus, Workspace};
+use crate::worktree::WorktreeManager;
 
-pub struct EventHandler;
+pub struct EventContext<'a> {
+    pub bus: &'a mut EventBus,
+    pub focus: &'a mut FocusTarget,
+    pub last_terminal: &'a mut Option<SessionId>,
+    pub workspace: &'a mut Workspace,
+    pub sessions: &'a mut SessionManager,
+    pub worktrees: &'a mut WorktreeManager,
+    pub rows: u16,
+    pub cols: u16,
+    pub events: &'a crate::event::EventSender,
+    pub should_quit: &'a mut bool,
+    pub status_message: &'a mut Option<String>,
+    pub new_tab_name: &'a mut String,
+}
 
-impl EventHandler {
-    pub fn handle(
-        event: Event,
-        bus: &mut EventBus,
-        focus: &mut FocusTarget,
-        last_terminal: &mut Option<SessionId>,
-        workspace: &mut Workspace,
-        sessions: &mut SessionManager,
-        worktrees: &mut WorktreeManager,
-        rows: u16,
-        cols: u16,
-        events: &crate::event::EventSender,
-        should_quit: &mut bool,
-        status_message: &mut Option<String>,
-        new_tab_name: &mut String,
-    ) -> Result<()> {
+pub struct EventHandler<'a> {
+    context: EventContext<'a>,
+}
+
+impl<'a> EventHandler<'a> {
+    pub fn new(context: EventContext<'a>) -> Self {
+        Self { context }
+    }
+
+    pub fn handle(&mut self, event: Event) -> Result<()> {
         match event {
-            Event::KeyPress(key) => Self::handle_key_press(
-                key,
-                bus,
-                focus,
-                last_terminal,
-                sessions,
-                should_quit,
-                new_tab_name,
-            )?,
+            Event::KeyPress(key) => self.handle_key_press(key)?,
             Event::Tick => {}
             Event::Resize { width, height } => {
-                sessions.resize_all(height, width)?;
+                self.context.sessions.resize_all(height, width)?;
             }
             Event::CreateTab { name } => {
-                Self::handle_create_tab(
-                    name,
-                    bus,
-                    focus,
-                    last_terminal,
-                    workspace,
-                    sessions,
-                    worktrees,
-                    rows,
-                    cols,
-                    events,
-                    status_message,
-                )?;
+                self.handle_create_tab(name)?;
             }
             Event::CloseTab { session_id } => {
-                Self::handle_close_tab(
-                    session_id,
-                    bus,
-                    focus,
-                    last_terminal,
-                    workspace,
-                    sessions,
-                    worktrees,
-                    should_quit,
-                    status_message,
-                )?;
+                self.handle_close_tab(session_id)?;
             }
             Event::FocusNextTab => {
-                Self::focus_next_tab(focus, last_terminal, workspace);
+                self.focus_next_tab();
             }
             Event::FocusPreviousTab => {
-                Self::focus_prev_tab(focus, last_terminal, workspace);
+                self.focus_prev_tab();
             }
             Event::FocusTab { index } => {
-                if let Some(session) = workspace.sessions().get(index) {
-                    Self::focus_terminal(session.id, focus, last_terminal, workspace);
+                if let Some(session_id) = self
+                    .context
+                    .workspace
+                    .sessions()
+                    .get(index)
+                    .map(|session| session.id)
+                {
+                    self.focus_terminal(session_id);
                 }
             }
             Event::FocusTerminal { session_id } => {
-                Self::focus_terminal(session_id, focus, last_terminal, workspace);
+                self.focus_terminal(session_id);
             }
             Event::OpenCommandPalette => {
-                *focus = FocusTarget::CommandPalette;
+                *self.context.focus = FocusTarget::CommandPalette;
             }
             Event::CloseCommandPalette => {
-                Self::restore_terminal_focus(focus, last_terminal);
+                self.restore_terminal_focus();
             }
             Event::RenameTab { session_id, name } => {
-                workspace.rename_session(session_id, name);
-                Self::persist(workspace, worktrees, status_message);
+                self.context.workspace.rename_session(session_id, name);
+                self.persist();
             }
             Event::PtyOutput { session_id, bytes } => {
-                if let Some(session) = sessions.get_mut(session_id) {
+                if let Some(session) = self.context.sessions.get_mut(session_id) {
                     session.process_output(&bytes);
                 }
-                if workspace
+                if self
+                    .context
+                    .workspace
                     .get(session_id)
                     .is_some_and(|session| session.status == SessionStatus::Starting)
                 {
-                    workspace.set_status(session_id, SessionStatus::Running);
+                    self.context
+                        .workspace
+                        .set_status(session_id, SessionStatus::Running);
                 }
             }
             Event::PtyExit { session_id } => {
-                workspace.set_status(session_id, SessionStatus::Exited);
-                Self::persist(workspace, worktrees, status_message);
+                self.context
+                    .workspace
+                    .set_status(session_id, SessionStatus::Exited);
+                self.persist();
             }
             Event::SessionCreated { .. } => {}
             Event::SessionRestored { .. } => {}
             Event::SessionClosed { .. } => {}
             Event::TabCreated { .. } => {}
             Event::Notify { message } => {
-                *status_message = Some(message);
+                *self.context.status_message = Some(message);
             }
         }
 
         Ok(())
     }
 
-    fn persist(
-        workspace: &Workspace,
-        worktrees: &WorktreeManager,
-        status_message: &mut Option<String>,
-    ) {
-        if let Err(error) = worktrees.persist(&workspace.to_persisted()) {
-            *status_message = Some(error.to_string());
+    fn persist(&mut self) {
+        if let Err(error) = self
+            .context
+            .worktrees
+            .persist(&self.context.workspace.to_persisted())
+        {
+            *self.context.status_message = Some(error.to_string());
         }
     }
 
-    fn focus_terminal(
-        session_id: SessionId,
-        focus: &mut FocusTarget,
-        last_terminal: &mut Option<SessionId>,
-        workspace: &Workspace,
-    ) {
-        let Some(session) = workspace.get(session_id) else {
+    fn focus_terminal(&mut self, session_id: SessionId) {
+        let Some(session) = self.context.workspace.get(session_id) else {
             return;
         };
         if !session.is_focusable() {
             return;
         }
 
-        *focus = FocusTarget::Terminal(session_id);
-        *last_terminal = Some(session_id);
+        *self.context.focus = FocusTarget::Terminal(session_id);
+        *self.context.last_terminal = Some(session_id);
     }
 
-    fn focus_next_tab(focus: &mut FocusTarget, last_terminal: &mut Option<SessionId>, workspace: &Workspace) {
-        let Some(current) = workspace.active_session(focus.terminal(), *last_terminal) else {
+    fn focus_next_tab(&mut self) {
+        let Some(current) = self
+            .context
+            .workspace
+            .active_session(self.context.focus.terminal(), *self.context.last_terminal)
+        else {
             return;
         };
-        if let Some(next) = workspace.next_focusable(current) {
-            Self::focus_terminal(next, focus, last_terminal, workspace);
+        if let Some(next) = self.context.workspace.next_focusable(current) {
+            self.focus_terminal(next);
         }
     }
 
-    fn focus_prev_tab(focus: &mut FocusTarget, last_terminal: &mut Option<SessionId>, workspace: &Workspace) {
-        let Some(current) = workspace.active_session(focus.terminal(), *last_terminal) else {
+    fn focus_prev_tab(&mut self) {
+        let Some(current) = self
+            .context
+            .workspace
+            .active_session(self.context.focus.terminal(), *self.context.last_terminal)
+        else {
             return;
         };
-        if let Some(prev) = workspace.prev_focusable(current) {
-            Self::focus_terminal(prev, focus, last_terminal, workspace);
+        if let Some(prev) = self.context.workspace.prev_focusable(current) {
+            self.focus_terminal(prev);
         }
     }
 
-    fn restore_terminal_focus(focus: &mut FocusTarget, last_terminal: &Option<SessionId>) {
-        if let Some(session_id) = last_terminal {
-            *focus = FocusTarget::Terminal(*session_id);
+    fn restore_terminal_focus(&mut self) {
+        if let Some(session_id) = self.context.last_terminal {
+            *self.context.focus = FocusTarget::Terminal(*session_id);
         }
     }
 
-    fn handle_key_press(
-        key: KeyEvent,
-        bus: &mut EventBus,
-        focus: &mut FocusTarget,
-        last_terminal: &Option<SessionId>,
-        sessions: &mut SessionManager,
-        should_quit: &mut bool,
-        new_tab_name: &mut String,
-    ) -> Result<()> {
-        if *focus == FocusTarget::NewTabDialog {
-            Self::handle_new_tab_dialog_key(key, bus, focus, last_terminal, new_tab_name);
+    fn handle_key_press(&mut self, key: KeyEvent) -> Result<()> {
+        if *self.context.focus == FocusTarget::NewTabDialog {
+            self.handle_new_tab_dialog_key(key);
             return Ok(());
         }
 
         if is_app_shortcut(key) {
-            Self::handle_shortcut(key, bus, focus, new_tab_name, should_quit);
+            self.handle_shortcut(key);
             return Ok(());
         }
 
-        if !focus.accepts_terminal_input() {
+        if !self.context.focus.accepts_terminal_input() {
             return Ok(());
         }
 
-        let Some(session_id) = focus.terminal() else {
+        let Some(session_id) = self.context.focus.terminal() else {
             return Ok(());
         };
 
         let bytes = key_event_to_bytes(key);
         if !bytes.is_empty() {
-            if let Some(session) = sessions.get_mut(session_id) {
+            if let Some(session) = self.context.sessions.get_mut(session_id) {
                 session.write_input(&bytes)?;
             }
         }
@@ -207,96 +193,72 @@ impl EventHandler {
         Ok(())
     }
 
-    fn handle_new_tab_dialog_key(
-        key: KeyEvent,
-        bus: &mut EventBus,
-        focus: &mut FocusTarget,
-        last_terminal: &Option<SessionId>,
-        new_tab_name: &mut String,
-    ) {
+    fn handle_new_tab_dialog_key(&mut self, key: KeyEvent) {
         use KeyCode::*;
 
         match key.code {
             Esc => {
-                new_tab_name.clear();
-                Self::restore_terminal_focus(focus, last_terminal);
+                self.context.new_tab_name.clear();
+                self.restore_terminal_focus();
             }
             Enter => {
-                let name = new_tab_name.trim().to_string();
-                new_tab_name.clear();
-                Self::restore_terminal_focus(focus, last_terminal);
-                bus.push(Event::CreateTab { name });
+                let name = self.context.new_tab_name.trim().to_string();
+                self.context.new_tab_name.clear();
+                self.restore_terminal_focus();
+                self.context.bus.push(Event::CreateTab { name });
             }
             Backspace => {
-                new_tab_name.pop();
+                self.context.new_tab_name.pop();
             }
             Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                new_tab_name.push(ch);
+                self.context.new_tab_name.push(ch);
             }
             _ => {}
         }
     }
 
-    fn handle_shortcut(
-        key: KeyEvent,
-        bus: &mut EventBus,
-        focus: &mut FocusTarget,
-        new_tab_name: &mut String,
-        should_quit: &mut bool,
-    ) {
+    fn handle_shortcut(&mut self, key: KeyEvent) {
         use KeyCode::*;
 
         match key.code {
             Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                new_tab_name.clear();
-                *focus = FocusTarget::NewTabDialog;
+                self.context.new_tab_name.clear();
+                *self.context.focus = FocusTarget::NewTabDialog;
             }
             Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(session_id) = focus.terminal() {
-                    bus.push(Event::CloseTab { session_id });
+                if let Some(session_id) = self.context.focus.terminal() {
+                    self.context.bus.push(Event::CloseTab { session_id });
                 }
             }
             Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                *should_quit = true;
+                *self.context.should_quit = true;
             }
             _ if tab_cycle_direction(key) == Some(TabCycleDirection::Next) => {
-                bus.push(Event::FocusNextTab);
+                self.context.bus.push(Event::FocusNextTab);
             }
             _ if tab_cycle_direction(key) == Some(TabCycleDirection::Previous) => {
-                bus.push(Event::FocusPreviousTab);
+                self.context.bus.push(Event::FocusPreviousTab);
             }
             _ => {}
         }
     }
 
-    fn handle_create_tab(
-        name: String,
-        bus: &mut EventBus,
-        focus: &mut FocusTarget,
-        last_terminal: &mut Option<SessionId>,
-        workspace: &mut Workspace,
-        sessions: &mut SessionManager,
-        worktrees: &mut WorktreeManager,
-        rows: u16,
-        cols: u16,
-        events: &crate::event::EventSender,
-        status_message: &mut Option<String>,
-    ) -> Result<()> {
-        let title = if workspace.session_count() == 0 {
+    fn handle_create_tab(&mut self, name: String) -> Result<()> {
+        let title = if self.context.workspace.session_count() == 0 {
             "Main".into()
         } else if name.trim().is_empty() {
-            workspace.next_default_name()
+            self.context.workspace.next_default_name()
         } else {
             name.trim().to_string()
         };
 
-        let worktree = if workspace.session_count() == 0 {
-            worktrees.primary()
+        let worktree = if self.context.workspace.session_count() == 0 {
+            self.context.worktrees.primary()
         } else {
-            match worktrees.create(&title) {
+            match self.context.worktrees.create(&title) {
                 Ok(worktree) => worktree,
                 Err(error) => {
-                    bus.push(Event::Notify {
+                    self.context.bus.push(Event::Notify {
                         message: error.to_string(),
                     });
                     return Ok(());
@@ -306,34 +268,41 @@ impl EventHandler {
 
         let session_id = SessionId::new();
 
-        workspace.add_session(
+        self.context.workspace.add_session(
             session_id,
             title.clone(),
             worktree.clone(),
             SessionStatus::Starting,
         );
 
-        if let Err(error) = sessions.create(session_id, &worktree.path, rows, cols, events.clone())
-        {
-            workspace.remove_session(session_id);
+        if let Err(error) = self.context.sessions.create(
+            session_id,
+            &worktree.path,
+            self.context.rows,
+            self.context.cols,
+            self.context.events.clone(),
+        ) {
+            self.context.workspace.remove_session(session_id);
             if !worktree.is_primary() {
-                let _ = worktrees.delete(&worktree);
+                let _ = self.context.worktrees.delete(&worktree);
             }
-            bus.push(Event::Notify {
+            self.context.bus.push(Event::Notify {
                 message: format!("failed to launch codex: {error}"),
             });
             return Ok(());
         }
 
-        workspace.set_status(session_id, SessionStatus::Running);
-        *focus = FocusTarget::Terminal(session_id);
-        *last_terminal = Some(session_id);
-        *status_message = None;
+        self.context
+            .workspace
+            .set_status(session_id, SessionStatus::Running);
+        *self.context.focus = FocusTarget::Terminal(session_id);
+        *self.context.last_terminal = Some(session_id);
+        *self.context.status_message = None;
 
-        Self::persist(workspace, worktrees, status_message);
+        self.persist();
 
-        bus.push(Event::SessionCreated { session_id });
-        bus.push(Event::TabCreated {
+        self.context.bus.push(Event::SessionCreated { session_id });
+        self.context.bus.push(Event::TabCreated {
             session_id,
             name: title,
         });
@@ -341,55 +310,47 @@ impl EventHandler {
         Ok(())
     }
 
-    fn handle_close_tab(
-        session_id: SessionId,
-        bus: &mut EventBus,
-        focus: &mut FocusTarget,
-        last_terminal: &mut Option<SessionId>,
-        workspace: &mut Workspace,
-        sessions: &mut SessionManager,
-        worktrees: &mut WorktreeManager,
-        should_quit: &mut bool,
-        status_message: &mut Option<String>,
-    ) -> Result<()> {
-        let Some(session) = workspace.get(session_id) else {
+    fn handle_close_tab(&mut self, session_id: SessionId) -> Result<()> {
+        let Some(session) = self.context.workspace.get(session_id) else {
             return Ok(());
         };
         let worktree = session.worktree.clone();
-        let closing_focused = focus.is_terminal(session_id);
-        let last_tab = workspace.session_count() <= 1;
+        let closing_focused = self.context.focus.is_terminal(session_id);
+        let last_tab = self.context.workspace.session_count() <= 1;
 
-        sessions.close(session_id);
+        self.context.sessions.close(session_id);
 
-        if let Err(error) = worktrees.delete(&worktree) {
-            bus.push(Event::Notify {
+        if let Err(error) = self.context.worktrees.delete(&worktree) {
+            self.context.bus.push(Event::Notify {
                 message: format!("worktree cleanup failed: {error}"),
             });
         }
 
-        workspace.remove_session(session_id);
+        self.context.workspace.remove_session(session_id);
 
         if !last_tab {
-            Self::persist(workspace, worktrees, status_message);
+            self.persist();
         } else {
-            let _ = worktrees.persist(&[]);
-            *should_quit = true;
+            let _ = self.context.worktrees.persist(&[]);
+            *self.context.should_quit = true;
             return Ok(());
         }
 
         if closing_focused {
-            if let Some(next) = workspace
+            if let Some(next) = self
+                .context
+                .workspace
                 .sessions()
                 .iter()
                 .find(|session| session.is_focusable())
                 .map(|session| session.id)
             {
-                *focus = FocusTarget::Terminal(next);
-                *last_terminal = Some(next);
+                *self.context.focus = FocusTarget::Terminal(next);
+                *self.context.last_terminal = Some(next);
             }
         }
 
-        bus.push(Event::SessionClosed { session_id });
+        self.context.bus.push(Event::SessionClosed { session_id });
 
         Ok(())
     }

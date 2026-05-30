@@ -1,6 +1,20 @@
 const STOP_WORDS: &[&str] = &[
-    "a", "an", "the", "build", "create", "add", "fix", "implement", "make", "setup", "set",
-    "up", "for", "to", "and", "or",
+    "a",
+    "an",
+    "the",
+    "build",
+    "create",
+    "add",
+    "fix",
+    "implement",
+    "make",
+    "setup",
+    "set",
+    "up",
+    "for",
+    "to",
+    "and",
+    "or",
 ];
 
 /// Derive a short slug from a task title, e.g. "Build Authentication" → "auth".

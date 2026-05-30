@@ -50,7 +50,8 @@ impl WorktreeStore {
         let dir = ares_dir();
         fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
 
-        let contents = serde_json::to_string_pretty(state).context("failed to serialize sessions")?;
+        let contents =
+            serde_json::to_string_pretty(state).context("failed to serialize sessions")?;
         fs::write(&self.path, contents)
             .with_context(|| format!("failed to write {}", self.path.display()))?;
         Ok(())
