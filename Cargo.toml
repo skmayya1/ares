@@ -1,0 +1,26 @@
+[package]
+name = "ares"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.86"
+description = "Tabbed terminal UI with event-driven architecture"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+crossterm = "0.28"
+portable-pty = "0.9"
+ratatui = "0.30"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tui-term = "0.3"
+uuid = { version = "1", features = ["v4", "serde"] }
+vt100 = "0.16"
+
+[lib]
+name = "ares"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ares"
+path = "src/main.rs"
